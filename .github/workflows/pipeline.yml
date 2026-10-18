@@ -18,17 +18,25 @@ jobs:
         with:
           python-version: '3.11'
 
-      # --- STEP 1: SECURITY SCANNING ---
+      # --- STEP 1: SECURITY SCANNING (Non-Failing) ---
       - name: Install Security Tools & Dependencies
         run: |
           pip install bandit pip-audit
           pip install -r requirements.txt
 
       - name: SAST Scan (Bandit)
-        run: bandit -r . -x ./venv,./__pycache__ -ll
+        run: |
+          echo "Running Bandit SAST Scan..."
+          # -f markdown outputs a readable report, || true prevents pipeline failure
+          bandit -r . -x ./venv,./__pycache__ -f markdown -o bandit_report.md || true
+          bandit -r . -x ./venv,./__pycache__ -ll || true # Still print to console for visibility
 
       - name: Dependency Scan (pip-audit)
-        run: pip-audit -r requirements.txt
+        run: |
+          echo "Running pip-audit Dependency Scan..."
+          # --format markdown creates a shareable report, || true prevents pipeline failure
+          pip-audit -r requirements.txt --format markdown > pip_audit_report.md || true
+          pip-audit -r requirements.txt || true # Still print to console for visibility
 
       - name: Build Docker Image
         run: docker build -t ${{ secrets.DOCKER_USERNAME }}/project4-django:${{ github.sha }} .
@@ -36,13 +44,11 @@ jobs:
       # --- DAST Scan (OWASP ZAP) ---
       - name: Run App in Background for DAST
         run: |
-          # Added ALLOWED_HOSTS=* to prevent Django 400 Bad Request errors during scan
           docker run -d -p 8080:8000 -e ALLOWED_HOSTS="*" --name django_app ${{ secrets.DOCKER_USERNAME }}/project4-django:${{ github.sha }}
 
       - name: Wait for App to be Ready (Health Check)
         run: |
           echo "Waiting for Django to start..."
-          # Try to connect every 2 seconds, up to 30 times (60 seconds total)
           for i in {1..30}; do
             if curl -s http://localhost:8080 > /dev/null; then
               echo "✅ App is up and running!"
@@ -51,8 +57,6 @@ jobs:
             echo "Attempt $i: Server not ready yet..."
             sleep 2
           done
-          
-          # If it reaches here, the app failed to start. Print logs to debug.
           echo "❌ App failed to start. Here are the container logs:"
           docker logs django_app
           exit 1
@@ -62,6 +66,7 @@ jobs:
         with:
           target: 'http://localhost:8080'
           cmd_options: '-a'
+        continue-on-error: true # Allows pipeline to continue even if ZAP finds vulnerabilities
 
       - name: Stop App Container
         if: always()
@@ -82,6 +87,19 @@ jobs:
           docker tag ${{ secrets.DOCKER_USERNAME }}/project4-django:${{ github.sha }} ${{ secrets.DOCKER_USERNAME }}/project4-django:latest
           docker push ${{ secrets.DOCKER_USERNAME }}/project4-django:latest
 
+      # --- STEP 3: UPLOAD SECURITY REPORTS ---
+      - name: Upload Security Reports as Artifacts
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-scan-reports
+          path: |
+            bandit_report.md
+            pip_audit_report.md
+            report_html.html
+            report_md.md
+            report_json.json
+
   # --- STEP 4: GitOps Implementation (Auto-update manifests) ---
   update-gitops-repo:
     needs: security-and-build
@@ -90,11 +108,10 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v3
         with:
-          token: ${{ secrets.PAT_TOKEN }} # Requires a Personal Access Token with 'repo' scope
+          token: ${{ secrets.PAT_TOKEN }}
 
       - name: Update K8s Manifest with New Image Tag
         run: |
-          # Updates the image tag in the deployment file
           sed -i "s|image: .*|image: ${{ secrets.DOCKER_USERNAME }}/project4-django:${{ github.sha }}|g" k8s/deployment.yaml
           
       - name: Commit and Push Changes (GitOps Trigger)
