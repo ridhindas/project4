@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: project4-django-deployment
+  labels:
+    app: project4-django
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: project4-django
+  template:
+    metadata:
+      labels:
+        app: project4-django
+    spec:
+      containers:
+      - name: project4-django
+        image: ridhindas/project4-django:latest # Update this
+        ports:
+        - containerPort: 8000
+        env:
+        - name: ALLOWED_HOSTS
+          value: "*"
