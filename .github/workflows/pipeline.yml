@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# Grant necessary permissions for ZAP to create issues and Actions to push code
+permissions:
+  contents: write
+  issues: write
+  actions: read
+
 jobs:
   security-and-build:
     runs-on: ubuntu-latest
