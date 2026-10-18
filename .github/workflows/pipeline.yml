@@ -36,18 +36,22 @@ jobs:
       # --- DAST Scan (OWASP ZAP) ---
       - name: Run App in Background for DAST
         run: |
-          docker run -d -p 8000:8000 --name django_app ${{ secrets.DOCKER_USERNAME }}/project4-django:${{ github.sha }}
-          sleep 10 # Wait for app to start
+          # Using port 8080 on the host to avoid conflicts, mapping to 8000 in container
+          docker run -d -p 8080:8000 --name django_app ${{ secrets.DOCKER_USERNAME }}/project4-django:${{ github.sha }}
+          sleep 15 # Increased time to allow DB migrations to run
 
       - name: DAST Scan (OWASP ZAP)
         uses: zaproxy/action-baseline@v0.7.0
         with:
-          target: 'http://localhost:8000'
+          target: 'http://localhost:8080' # Updated to match the new host port
           cmd_options: '-a'
 
       - name: Stop App Container
         if: always()
-        run: docker stop django_app && docker rm django_app
+        run: |
+          # Added '|| true' so this step doesn't fail the pipeline if the container is already gone
+          docker stop django_app || true
+          docker rm django_app || true
 
       # --- Push to Docker Hub ---
       - name: Log in to Docker Hub
