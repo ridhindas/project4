@@ -41,9 +41,9 @@ jobs:
           sleep 15 # Increased time to allow DB migrations to run
 
       - name: DAST Scan (OWASP ZAP)
-        uses: zaproxy/action-baseline@v0.7.0
+        uses: zaproxy/action-baseline@v0.15.0
         with:
-          target: 'http://localhost:8080' # Updated to match the new host port
+          target: 'http://localhost:8080'
           cmd_options: '-a'
 
       - name: Stop App Container
